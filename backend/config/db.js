@@ -162,12 +162,21 @@ async function initializeDatabase() {
       10
     );
 
+    // Create or update default admin
     await connection.execute(
       `INSERT INTO admins
         (email, password_hash, full_name)
        VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE email = email`,
-      [adminEmail, passwordHash, 'System Admin']
+       ON DUPLICATE KEY UPDATE
+         password_hash = ?,
+         full_name = ?`,
+      [
+        adminEmail,
+        passwordHash,
+        'System Admin',
+        passwordHash,
+        'System Admin'
+      ]
     );
 
     // Create connection pool

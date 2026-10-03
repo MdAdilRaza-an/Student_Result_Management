@@ -2,12 +2,24 @@ const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 const dbName = process.env.DB_NAME || 'student_result_management';
+
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT || 3306),
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
   database: dbName,
+
+  // TiDB Cloud Public Endpoint requires TLS
+  ...(process.env.DB_SSL === 'true'
+    ? {
+        ssl: {
+          minVersion: 'TLSv1.2',
+          rejectUnauthorized: true,
+        },
+      }
+    : {}),
+
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
@@ -20,23 +32,41 @@ function getPool() {
   if (!pool && dbReady) {
     pool = mysql.createPool(dbConfig);
   }
+
   return pool;
 }
 
 async function initializeDatabase() {
   dbReady = false;
+
   try {
+    // Initial connection for creating the database
     const initConnection = await mysql.createConnection({
       host: dbConfig.host,
       port: dbConfig.port,
       user: dbConfig.user,
       password: dbConfig.password,
+
+      // TiDB Cloud TLS support
+      ...(process.env.DB_SSL === 'true'
+        ? {
+            ssl: {
+              minVersion: 'TLSv1.2',
+              rejectUnauthorized: true,
+            },
+          }
+        : {}),
+
       multipleStatements: true,
     });
 
-    await initConnection.execute(`CREATE DATABASE IF NOT EXISTS \`${dbConfig.database}\``);
+    await initConnection.execute(
+      `CREATE DATABASE IF NOT EXISTS \`${dbConfig.database}\``
+    );
+
     await initConnection.end();
 
+    // Connection using selected database
     const connection = await mysql.createConnection(dbConfig);
 
     await connection.execute(`
@@ -101,6 +131,7 @@ async function initializeDatabase() {
       )
     `);
 
+    // Default subjects
     const defaultSubjects = [
       ['JAVA101', 'Java', 100],
       ['HTML101', 'HTML', 100],
@@ -111,28 +142,50 @@ async function initializeDatabase() {
 
     for (const [code, name, maxMarks] of defaultSubjects) {
       await connection.execute(
-        'INSERT INTO subjects (subject_code, subject_name, max_marks) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE subject_code = subject_code',
+        `INSERT INTO subjects
+          (subject_code, subject_name, max_marks)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE subject_code = subject_code`,
         [code, name, maxMarks]
       );
     }
 
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@studentresult.com';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
-    const passwordHash = require('bcryptjs').hashSync(adminPassword, 10);
+    // Default admin
+    const adminEmail =
+      process.env.ADMIN_EMAIL || 'admin@studentresult.com';
+
+    const adminPassword =
+      process.env.ADMIN_PASSWORD || 'admin123';
+
+    const passwordHash = require('bcryptjs').hashSync(
+      adminPassword,
+      10
+    );
 
     await connection.execute(
-      'INSERT INTO admins (email, password_hash, full_name) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE email = email',
+      `INSERT INTO admins
+        (email, password_hash, full_name)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE email = email`,
       [adminEmail, passwordHash, 'System Admin']
     );
 
+    // Create connection pool
     pool = mysql.createPool(dbConfig);
     dbReady = true;
+
     await connection.end();
+
     return true;
   } catch (error) {
     pool = null;
     dbReady = false;
-    console.error('Database initialization failed:', error.message);
+
+    console.error(
+      'Database initialization failed:',
+      error.message
+    );
+
     return false;
   }
 }

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Subjects | Student Result Management</title>
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-header"><h2>SRMS</h2></div>
+        <nav class="nav-menu">
+          <a class="nav-link" href="dashboard.html">Dashboard</a>
+          <a class="nav-link" href="students.html">Students</a>
+          <a class="nav-link active" href="subjects.html">Subjects</a>
+          <a class="nav-link" href="marks.html">Marks</a>
+          <a class="nav-link" href="results.html">Results</a>
+        </nav>
+      </aside>
+
+      <main class="main-content">
+        <div class="topbar">
+          <h1>Subject Management</h1>
+          <div class="user-actions">
+            <span id="adminName" class="user-badge">Admin</span>
+            <button id="logoutBtn" class="secondary-btn">Logout</button>
+          </div>
+        </div>
+
+        <div class="page-card">
+          <div class="toolbar"><div></div><button id="toggleSubjectForm" class="primary-btn" style="width:auto;">Add Subject</button></div>
+          <form id="subjectForm" class="grid-form" style="display:none;">
+            <input type="hidden" id="subjectId" />
+            <div class="form-group"><label>Subject Code</label><input id="subjectCode" required /></div>
+            <div class="form-group"><label>Subject Name</label><input id="subjectName" required /></div>
+            <div class="form-group"><label>Maximum Marks</label><input id="maxMarks" type="number" min="1" required /></div>
+            <div class="form-group" style="display:flex; align-items:flex-end;"><button type="submit" class="primary-btn">Save Subject</button></div>
+          </form>
+
+          <div id="subjectMessage" class="message"></div>
+          <div class="table-wrap"><table><thead><tr><th>Subject Code</th><th>Subject Name</th><th>Maximum Marks</th><th>Actions</th></tr></thead><tbody id="subjectsTableBody"></tbody></table></div>
+        </div>
+      </main>
+    </div>
+
+    <script src="./js/auth.js"></script>
+    <script>
+      redirectIfNotAuthenticated();
+      const subjectForm = document.getElementById('subjectForm');
+      const subjectsTableBody = document.getElementById('subjectsTableBody');
+      const subjectMessage = document.getElementById('subjectMessage');
+      const adminNameEl = document.getElementById('adminName');
+      const admin = JSON.parse(localStorage.getItem('student_result_admin') || '{}');
+      if (admin.name) adminNameEl.textContent = admin.name;
+
+      document.getElementById('logoutBtn').addEventListener('click', () => {
+        clearAuthToken();
+        localStorage.removeItem('student_result_admin');
+        window.location.href = 'index.html';
+      });
+
+      document.getElementById('toggleSubjectForm').addEventListener('click', () => {
+        const form = document.getElementById('subjectForm');
+        form.style.display = form.style.display === 'none' ? 'grid' : 'none';
+      });
+
+      async function loadSubjects() {
+        try {
+          const data = await fetchJson('/api/subjects');
+          renderSubjects(data);
+        } catch (error) {
+          setMessage(subjectMessage, error.message, 'error');
+        }
+      }
+
+      function renderSubjects(subjects) {
+        if (!subjects.length) {
+          subjectsTableBody.innerHTML = '<tr><td colspan="4" class="empty-state">No subjects found.</td></tr>';
+          return;
+        }
+
+        subjectsTableBody.innerHTML = subjects.map((subject) => `
+          <tr>
+            <td>${subject.subject_code}</td><td>${subject.subject_name}</td><td>${subject.max_marks}</td>
+            <td><div class="table-actions"><button class="action-btn edit-subject" data-id="${subject.id}">Edit</button><button class="danger-btn delete-subject" data-id="${subject.id}">Delete</button></div></td>
+          </tr>
+        `).join('');
+
+        document.querySelectorAll('.edit-subject').forEach((button) => button.addEventListener('click', () => editSubject(button.dataset.id)));
+        document.querySelectorAll('.delete-subject').forEach((button) => button.addEventListener('click', () => deleteSubject(button.dataset.id)));
+      }
+
+      async function editSubject(id) {
+        try {
+          const data = await fetchJson('/api/subjects');
+          const subject = data.find((item) => String(item.id) === String(id));
+          if (!subject) return;
+          document.getElementById('subjectId').value = subject.id;
+          document.getElementById('subjectCode').value = subject.subject_code;
+          document.getElementById('subjectName').value = subject.subject_name;
+          document.getElementById('maxMarks').value = subject.max_marks;
+          subjectForm.style.display = 'grid';
+          setMessage(subjectMessage, 'Editing subject details.', 'success');
+        } catch (error) {
+          setMessage(subjectMessage, error.message, 'error');
+        }
+      }
+
+      async function deleteSubject(id) {
+        const confirmed = window.confirm('Are you sure you want to delete this subject?');
+        if (!confirmed) return;
+        try {
+          await fetchJson(`/api/subjects/${id}`, { method: 'DELETE' });
+          setMessage(subjectMessage, 'Subject deleted successfully.', 'success');
+          loadSubjects();
+        } catch (error) {
+          setMessage(subjectMessage, error.message, 'error');
+        }
+      }
+
+      subjectForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const payload = {
+          subject_code: document.getElementById('subjectCode').value.trim(),
+          subject_name: document.getElementById('subjectName').value.trim(),
+          max_marks: Number(document.getElementById('maxMarks').value)
+        };
+        const subjectId = document.getElementById('subjectId').value;
+        const method = subjectId ? 'PUT' : 'POST';
+        const url = subjectId ? `/api/subjects/${subjectId}` : '/api/subjects';
+        try {
+          await fetchJson(url, { method, body: JSON.stringify(payload) });
+          subjectForm.reset();
+          document.getElementById('subjectId').value = '';
+          setMessage(subjectMessage, subjectId ? 'Subject updated successfully.' : 'Subject added successfully.', 'success');
+          loadSubjects();
+        } catch (error) {
+          setMessage(subjectMessage, error.message, 'error');
+        }
+      });
+
+      loadSubjects();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Students | Student Result Management</title>
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-header"><h2>SRMS</h2></div>
+        <nav class="nav-menu">
+          <a class="nav-link" href="dashboard.html">Dashboard</a>
+          <a class="nav-link active" href="students.html">Students</a>
+          <a class="nav-link" href="subjects.html">Subjects</a>
+          <a class="nav-link" href="marks.html">Marks</a>
+          <a class="nav-link" href="results.html">Results</a>
+        </nav>
+      </aside>
+
+      <main class="main-content">
+        <div class="topbar">
+          <h1>Student Management</h1>
+          <div class="user-actions">
+            <span id="adminName" class="user-badge">Admin</span>
+            <button id="logoutBtn" class="secondary-btn">Logout</button>
+          </div>
+        </div>
+
+        <div class="page-card">
+          <div class="toolbar">
+            <div class="form-row">
+              <input id="studentSearch" type="text" placeholder="Search roll number, name or email" />
+              <select id="studentFilterSection"><option value="">All Sections</option></select>
+              <select id="studentFilterCourse"><option value="">All Courses</option></select>
+              <select id="studentFilterSemester"><option value="">All Semesters</option></select>
+            </div>
+            <button id="toggleStudentForm" class="primary-btn" style="width:auto;">Add Student</button>
+          </div>
+
+          <form id="studentForm" class="grid-form" style="display:none;">
+            <input type="hidden" id="studentId" />
+            <div class="form-group"><label>Roll Number</label><input id="rollNo" required /></div>
+            <div class="form-group"><label>Name</label><input id="studentName" required /></div>
+            <div class="form-group"><label>Email</label><input id="studentEmail" type="email" required /></div>
+            <div class="form-group"><label>Phone</label><input id="studentPhone" required /></div>
+            <div class="form-group"><label>Section</label><input id="studentSection" required /></div>
+            <div class="form-group"><label>Course</label><input id="studentCourse" required /></div>
+            <div class="form-group"><label>Semester</label><input id="studentSemester" required /></div>
+            <div class="form-group" style="display:flex; align-items:flex-end;"><button type="submit" class="primary-btn">Save Student</button></div>
+          </form>
+
+          <div id="studentMessage" class="message"></div>
+          <div class="table-wrap"><table><thead><tr><th>Roll No</th><th>Name</th><th>Email</th><th>Phone</th><th>Section</th><th>Course</th><th>Semester</th><th>Actions</th></tr></thead><tbody id="studentsTableBody"></tbody></table></div>
+        </div>
+      </main>
+    </div>
+
+    <script src="./js/auth.js"></script>
+    <script>
+      redirectIfNotAuthenticated();
+      const studentForm = document.getElementById('studentForm');
+      const studentsTableBody = document.getElementById('studentsTableBody');
+      const studentMessage = document.getElementById('studentMessage');
+      const adminNameEl = document.getElementById('adminName');
+      const admin = JSON.parse(localStorage.getItem('student_result_admin') || '{}');
+      if (admin.name) adminNameEl.textContent = admin.name;
+
+      document.getElementById('logoutBtn').addEventListener('click', () => {
+        clearAuthToken();
+        localStorage.removeItem('student_result_admin');
+        window.location.href = 'index.html';
+      });
+
+      const filters = {
+        section: document.getElementById('studentFilterSection'),
+        course: document.getElementById('studentFilterCourse'),
+        semester: document.getElementById('studentFilterSemester')
+      };
+
+      document.getElementById('toggleStudentForm').addEventListener('click', () => {
+        const form = document.getElementById('studentForm');
+        form.style.display = form.style.display === 'none' ? 'grid' : 'none';
+      });
+
+      async function loadStudents() {
+        try {
+          const search = document.getElementById('studentSearch').value.trim();
+          const params = new URLSearchParams();
+          if (search) params.append('search', search);
+          if (filters.section.value) params.append('section', filters.section.value);
+          if (filters.course.value) params.append('course', filters.course.value);
+          if (filters.semester.value) params.append('semester', filters.semester.value);
+          const data = await fetchJson(`/api/students?${params.toString()}`);
+          renderStudents(data);
+        } catch (error) {
+          setMessage(studentMessage, error.message, 'error');
+        }
+      }
+
+      function renderStudents(students) {
+        if (!students.length) {
+          studentsTableBody.innerHTML = '<tr><td colspan="8" class="empty-state">No students found.</td></tr>';
+          return;
+        }
+
+        studentsTableBody.innerHTML = students.map((student) => `
+          <tr>
+            <td>${student.roll_no}</td><td>${student.name}</td><td>${student.email}</td><td>${student.phone}</td><td>${student.section}</td><td>${student.course}</td><td>${student.semester}</td>
+            <td><div class="table-actions"><button class="action-btn edit-student" data-id="${student.id}">Edit</button><button class="danger-btn delete-student" data-id="${student.id}">Delete</button></div></td>
+          </tr>
+        `).join('');
+
+        document.querySelectorAll('.edit-student').forEach((button) => button.addEventListener('click', () => editStudent(button.dataset.id)));
+        document.querySelectorAll('.delete-student').forEach((button) => button.addEventListener('click', () => deleteStudent(button.dataset.id)));
+      }
+
+      async function editStudent(id) {
+        try {
+          const data = await fetchJson('/api/students');
+          const student = data.find((item) => String(item.id) === String(id));
+          if (!student) return;
+          document.getElementById('studentId').value = student.id;
+          document.getElementById('rollNo').value = student.roll_no;
+          document.getElementById('studentName').value = student.name;
+          document.getElementById('studentEmail').value = student.email;
+          document.getElementById('studentPhone').value = student.phone;
+          document.getElementById('studentSection').value = student.section;
+          document.getElementById('studentCourse').value = student.course;
+          document.getElementById('studentSemester').value = student.semester;
+          studentForm.style.display = 'grid';
+          setMessage(studentMessage, 'Editing student details.', 'success');
+        } catch (error) {
+          setMessage(studentMessage, error.message, 'error');
+        }
+      }
+
+      async function deleteStudent(id) {
+        const confirmed = window.confirm('Are you sure you want to delete this student?');
+        if (!confirmed) return;
+        try {
+          await fetchJson(`/api/students/${id}`, { method: 'DELETE' });
+          setMessage(studentMessage, 'Student deleted successfully.', 'success');
+          loadStudents();
+        } catch (error) {
+          setMessage(studentMessage, error.message, 'error');
+        }
+      }
+
+      studentForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const payload = {
+          roll_no: document.getElementById('rollNo').value.trim(),
+          name: document.getElementById('studentName').value.trim(),
+          email: document.getElementById('studentEmail').value.trim(),
+          phone: document.getElementById('studentPhone').value.trim(),
+          section: document.getElementById('studentSection').value.trim(),
+          course: document.getElementById('studentCourse').value.trim(),
+          semester: document.getElementById('studentSemester').value.trim(),
+        };
+        const studentId = document.getElementById('studentId').value;
+        const method = studentId ? 'PUT' : 'POST';
+        const url = studentId ? `/api/students/${studentId}` : '/api/students';
+        try {
+          await fetchJson(url, { method, body: JSON.stringify(payload) });
+          studentForm.reset();
+          document.getElementById('studentId').value = '';
+          setMessage(studentMessage, studentId ? 'Student updated successfully.' : 'Student added successfully.', 'success');
+          loadStudents();
+        } catch (error) {
+          setMessage(studentMessage, error.message, 'error');
+        }
+      });
+
+      ['studentSearch', 'studentFilterSection', 'studentFilterCourse', 'studentFilterSemester'].forEach((id) => {
+        const el = document.getElementById(id);
+        el.addEventListener('input', loadStudents);
+        el.addEventListener('change', loadStudents);
+      });
+
+      async function populateFilters() {
+        const data = await fetchJson('/api/students');
+        const sections = [...new Set(data.map((s) => s.section).filter(Boolean))].sort();
+        const courses = [...new Set(data.map((s) => s.course).filter(Boolean))].sort();
+        const semesters = [...new Set(data.map((s) => s.semester).filter(Boolean))].sort();
+
+        filters.section.innerHTML = '<option value="">All Sections</option>' + sections.map((v) => `<option value="${v}">${v}</option>`).join('');
+        filters.course.innerHTML = '<option value="">All Courses</option>' + courses.map((v) => `<option value="${v}">${v}</option>`).join('');
+        filters.semester.innerHTML = '<option value="">All Semesters</option>' + semesters.map((v) => `<option value="${v}">${v}</option>`).join('');
+      }
+
+      async function initializePage() {
+        await populateFilters();
+        await loadStudents();
+      }
+
+      initializePage();
+    </script>
+  </body>
+</html>

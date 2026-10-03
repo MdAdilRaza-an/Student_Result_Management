@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Results | Student Result Management</title>
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-header"><h2>SRMS</h2></div>
+        <nav class="nav-menu">
+          <a class="nav-link" href="dashboard.html">Dashboard</a>
+          <a class="nav-link" href="students.html">Students</a>
+          <a class="nav-link" href="subjects.html">Subjects</a>
+          <a class="nav-link" href="marks.html">Marks</a>
+          <a class="nav-link active" href="results.html">Results</a>
+        </nav>
+      </aside>
+
+      <main class="main-content">
+        <div class="topbar">
+          <h1>Result Search</h1>
+          <div class="user-actions">
+            <span id="adminName" class="user-badge">Admin</span>
+            <button id="logoutBtn" class="secondary-btn">Logout</button>
+          </div>
+        </div>
+
+        <div class="page-card">
+          <div class="toolbar"><input id="resultSearch" type="text" placeholder="Search by roll number or student name" /></div>
+          <div id="resultMessage" class="message"></div>
+          <div id="resultContainer" class="table-wrap"></div>
+        </div>
+      </main>
+    </div>
+
+    <script src="./js/auth.js"></script>
+    <script>
+      redirectIfNotAuthenticated();
+      const resultSearch = document.getElementById('resultSearch');
+      const resultContainer = document.getElementById('resultContainer');
+      const adminNameEl = document.getElementById('adminName');
+      const admin = JSON.parse(localStorage.getItem('student_result_admin') || '{}');
+      if (admin.name) adminNameEl.textContent = admin.name;
+
+      document.getElementById('logoutBtn').addEventListener('click', () => {
+        clearAuthToken();
+        localStorage.removeItem('student_result_admin');
+        window.location.href = 'index.html';
+      });
+
+      async function loadResults() {
+        try {
+          const search = resultSearch.value.trim();
+          const data = await fetchJson(`/api/results?search=${encodeURIComponent(search)}`);
+
+          if (!data.length) {
+            resultContainer.innerHTML = '<div class="empty-state">No results found.</div>';
+            return;
+          }
+
+          resultContainer.innerHTML = data.map((entry) => {
+            const subjectRows = entry.marks.length ? entry.marks.map((item) => `
+              <tr><td>${item.subject_name}</td><td>${item.max_marks}</td><td>${item.marks_obtained}</td><td>${item.percentage}%</td></tr>
+            `).join('') : '<tr><td colspan="4">No subject marks available.</td></tr>';
+
+            const resultSummary = entry.result || { total_marks: 0, max_marks: 0, percentage: 0, grade: 'F', result_status: 'FAIL' };
+
+            return `
+              <div class="panel" style="margin-bottom:18px;">
+                <h2>${entry.student.name}</h2>
+                <p><strong>Roll Number:</strong> ${entry.student.roll_no} &nbsp; | &nbsp; <strong>Section:</strong> ${entry.student.section} &nbsp; | &nbsp; <strong>Course:</strong> ${entry.student.course} &nbsp; | &nbsp; <strong>Semester:</strong> ${entry.student.semester}</p>
+                <table>
+                  <thead><tr><th>Subject Name</th><th>Maximum Marks</th><th>Obtained Marks</th><th>Percentage</th></tr></thead>
+                  <tbody>${subjectRows}</tbody>
+                </table>
+                <div style="margin-top:18px;">
+                  <p><strong>Total Marks:</strong> ${resultSummary.total_marks || 0}</p>
+                  <p><strong>Maximum Marks:</strong> ${resultSummary.max_marks || 0}</p>
+                  <p><strong>Percentage:</strong> ${resultSummary.percentage || 0}%</p>
+                  <p><strong>Grade:</strong> ${resultSummary.grade || 'F'}</p>
+                  <p><strong>Pass/Fail:</strong> ${resultSummary.result_status || 'FAIL'}</p>
+                </div>
+              </div>
+            `;
+          }).join('');
+        } catch (error) {
+          setMessage(document.getElementById('resultMessage'), error.message, 'error');
+        }
+      }
+
+      resultSearch.addEventListener('input', loadResults);
+      loadResults();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,63 @@
+CREATE DATABASE IF NOT EXISTS student_result_management;
+USE student_result_management;
+
+CREATE TABLE IF NOT EXISTS admins (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(150) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  full_name VARCHAR(150) NOT NULL DEFAULT 'Admin',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS students (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  roll_no VARCHAR(50) NOT NULL UNIQUE,
+  name VARCHAR(150) NOT NULL,
+  email VARCHAR(150) NOT NULL,
+  phone VARCHAR(20) NOT NULL,
+  section VARCHAR(50) NOT NULL,
+  course VARCHAR(100) NOT NULL,
+  semester VARCHAR(20) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS subjects (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  subject_code VARCHAR(50) NOT NULL UNIQUE,
+  subject_name VARCHAR(150) NOT NULL UNIQUE,
+  max_marks DECIMAL(10,2) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS marks (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  student_id INT NOT NULL,
+  subject_id INT NOT NULL,
+  marks_obtained DECIMAL(10,2) NOT NULL,
+  max_marks DECIMAL(10,2) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_student_subject (student_id, subject_id),
+  FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+  FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS results (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  student_id INT NOT NULL UNIQUE,
+  total_marks DECIMAL(10,2) NOT NULL DEFAULT 0,
+  max_marks DECIMAL(10,2) NOT NULL DEFAULT 0,
+  percentage DECIMAL(10,2) NOT NULL DEFAULT 0,
+  grade VARCHAR(10) NOT NULL DEFAULT 'F',
+  result_status ENUM('PASS', 'FAIL') NOT NULL DEFAULT 'FAIL',
+  calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+);
+
+INSERT INTO subjects (subject_code, subject_name, max_marks)
+VALUES
+  ('JAVA101', 'Java', 100),
+  ('HTML101', 'HTML', 100),
+  ('CSS101', 'CSS', 100),
+  ('JS101', 'JavaScript', 100),
+  ('DB101', 'Database', 100)
+ON DUPLICATE KEY UPDATE subject_code = subject_code;

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Student Result Management System - Admin Login</title>
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body class="auth-body">
+    <div class="auth-container">
+      <div class="brand">
+        <h1>Student Result Management</h1>
+        <p>Admin Portal</p>
+      </div>
+
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" placeholder="admin@studentresult.com" required />
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" placeholder="Enter password" required />
+        </div>
+
+        <button type="submit" class="primary-btn">Login</button>
+      </form>
+
+      <div id="loginMessage" class="message"></div>
+    </div>
+
+    <script src="./js/auth.js"></script>
+    <script>
+      if (getAuthToken()) {
+        window.location.href = 'dashboard.html';
+      }
+
+      document.getElementById('loginForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+        const messageBox = document.getElementById('loginMessage');
+
+        try {
+          const data = await fetchJson('/api/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ email, password })
+          });
+
+          setAuthToken(data.token);
+          setMessage(messageBox, 'Login successful. Redirecting...', 'success');
+          setTimeout(() => {
+            window.location.href = 'dashboard.html';
+          }, 600);
+        } catch (error) {
+          setMessage(messageBox, error.message, 'error');
+        }
+      });
+    </script>
+  </body>
+</html>

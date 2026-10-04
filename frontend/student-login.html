@@ -1,34 +1,36 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Student Result Management System - Admin Login</title>
+    <title>Student Portal Login</title>
     <link rel="stylesheet" href="./css/style.css" />
   </head>
-  <body class="auth-body">
+  <body class="auth-body student-auth-body">
     <div class="auth-container">
-      <div class="brand">
-        <h1>Student Result Management</h1>
-        <p>Admin Portal</p>
+      <div class="auth-header">
+        <span class="eyebrow">Student Portal</span>
+        <h1>Welcome back</h1>
+        <p>Login to view your academic results</p>
       </div>
 
       <form id="loginForm">
         <div class="form-group">
           <label for="email">Email</label>
-          <input id="email" name="email" type="email" placeholder="admin@studentresult.com" required />
+          <input id="email" name="email" type="email" placeholder="student@example.com" required />
         </div>
 
         <div class="form-group">
           <label for="password">Password</label>
-          <input id="password" name="password" type="password" placeholder="Enter password" required />
+          <input id="password" name="password" type="password" placeholder="Enter your password" required />
         </div>
 
         <button type="submit" class="primary-btn">Login</button>
       </form>
 
       <div class="auth-links">
-        <a href="student-login.html">Student Portal</a>
+        <a href="student-signup.html">Create account</a>
+        <a href="index.html">Back to Admin Portal</a>
       </div>
 
       <div id="loginMessage" class="message"></div>
@@ -37,11 +39,8 @@
     <script src="./config.js"></script>
     <script src="./js/auth.js"></script>
     <script>
-      const existingUser = getAuthUser();
-      if (getAuthToken() && existingUser.role === 'ADMIN') {
-        window.location.href = 'dashboard.html';
-      }
-      if (getAuthToken() && existingUser.role === 'STUDENT') {
+      const user = getAuthUser();
+      if (getAuthToken() && user.role === 'STUDENT') {
         window.location.href = 'student-dashboard.html';
       }
 
@@ -52,17 +51,18 @@
         const messageBox = document.getElementById('loginMessage');
 
         try {
-          const data = await fetchJson('/api/auth/login', {
+          setMessage(messageBox, 'Signing in...', 'success');
+          const data = await fetchJson('/api/auth/student/login', {
             method: 'POST',
-            body: JSON.stringify({ email, password })
+            body: JSON.stringify({ email, password }),
           });
 
           setAuthToken(data.token);
-          setAuthUser(data.admin);
+          setAuthUser(data.student);
           setMessage(messageBox, 'Login successful. Redirecting...', 'success');
           setTimeout(() => {
-            window.location.href = 'dashboard.html';
-          }, 600);
+            window.location.href = 'student-dashboard.html';
+          }, 500);
         } catch (error) {
           setMessage(messageBox, error.message, 'error');
         }

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Marks</title>
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body>
+    <div class="student-shell">
+      <header class="student-topbar">
+        <div><strong>Student Portal</strong></div>
+        <nav class="student-nav">
+          <a href="student-dashboard.html">Dashboard</a>
+          <a href="student-profile.html">My Profile</a>
+          <a href="student-subjects.html">My Subjects</a>
+          <a class="active" href="student-marks.html">My Marks</a>
+          <a href="student-result.html">My Result</a>
+        </nav>
+        <button id="logoutBtn" class="secondary-btn" style="width:auto; padding:8px 12px;">Logout</button>
+      </header>
+
+      <main class="student-content">
+        <div class="student-page-card">
+          <h1>My Marks</h1>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Subject Code</th>
+                  <th>Subject Name</th>
+                  <th>Maximum Marks</th>
+                  <th>Obtained Marks</th>
+                  <th>Percentage</th>
+                </tr>
+              </thead>
+              <tbody id="marksTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script src="./config.js"></script>
+    <script src="./js/auth.js"></script>
+    <script>
+      redirectIfNotAuthenticated({ role: 'STUDENT', loginPage: 'student-login.html' });
+
+      document.getElementById('logoutBtn').addEventListener('click', () => {
+        clearAuthToken();
+        window.location.href = 'student-login.html';
+      });
+
+      async function loadMarks() {
+        try {
+          const data = await fetchJson('/api/student/marks');
+          const body = document.getElementById('marksTableBody');
+          if (!data.length) {
+            body.innerHTML = '<tr><td colspan="5" class="empty-state">No marks available yet.</td></tr>';
+            return;
+          }
+
+          body.innerHTML = data.map((mark) => `
+            <tr>
+              <td>${mark.subject_code}</td>
+              <td>${mark.subject_name}</td>
+              <td>${mark.max_marks}</td>
+              <td>${mark.marks_obtained}</td>
+              <td>${mark.percentage}%</td>
+            </tr>
+          `).join('');
+        } catch (error) {
+          console.error(error);
+        }
+      }
+
+      loadMarks();
+    </script>
+  </body>
+</html>

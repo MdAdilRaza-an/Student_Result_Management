@@ -1,11 +1,11 @@
-const express = require('express');
+﻿const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const { getPool, initializeDatabase } = require('./config/db');
-const { authenticateToken } = require('./middleware/auth');
+const { authenticateToken, requireRole } = require('./middleware/auth');
 const { calculateResultData } = require('./utils/resultCalculator');
 
 const app = express();
@@ -17,23 +17,25 @@ const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:8080')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-      return;
-    }
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
 
-    const isLocalhost = /^http:\/\/localhost(:\d+)?$/.test(origin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
-    if (isLocalhost) {
-      callback(null, true);
-      return;
-    }
+      const isLocalhost = /^http:\/\/localhost(:\d+)?$/.test(origin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
+      if (isLocalhost) {
+        callback(null, true);
+        return;
+      }
 
-    callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true,
-}));
+      callback(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -101,12 +103,16 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
-    const token = jwt.sign({ id: admin.id, email: admin.email, name: admin.full_name }, JWT_SECRET, { expiresIn: '8h' });
+    const token = jwt.sign(
+      { id: admin.id, email: admin.email, name: admin.full_name, role: 'ADMIN' },
+      JWT_SECRET,
+      { expiresIn: '8h' }
+    );
 
     return res.json({
       message: 'Login successful',
       token,
-      admin: { id: admin.id, email: admin.email, name: admin.full_name },
+      admin: { id: admin.id, email: admin.email, name: admin.full_name, role: 'ADMIN' },
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -114,11 +120,172 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-app.get('/api/auth/me', authenticateToken, (req, res) => {
-  return res.json({ admin: req.user });
+app.get('/api/auth/me', authenticateToken, requireRole('ADMIN'), async (req, res) => {
+  const pool = getPool();
+  if (!pool) return sendDatabaseUnavailable(res);
+
+  try {
+    const [rows] = await pool.query('SELECT id, email, full_name AS name FROM admins WHERE id = ? LIMIT 1', [req.user.id]);
+    if (!rows.length) {
+      return res.status(404).json({ message: 'Admin not found.' });
+    }
+
+    return res.json({ admin: { id: rows[0].id, email: rows[0].email, name: rows[0].name, role: 'ADMIN' } });
+  } catch (error) {
+    console.error('Fetch admin profile error:', error);
+    return res.status(500).json({ message: 'Could not fetch admin profile.' });
+  }
 });
 
-app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
+app.post('/api/auth/student/signup', async (req, res) => {
+  const pool = getPool();
+  if (!pool) return sendDatabaseUnavailable(res);
+
+  const {
+    full_name,
+    email,
+    password,
+    confirm_password,
+    phone,
+    roll_no,
+    section,
+    course,
+    semester,
+  } = req.body;
+
+  if (!full_name || !email || !password || !confirm_password || !phone || !roll_no || !section || !course || !semester) {
+    return res.status(400).json({ message: 'All student fields are required.' });
+  }
+
+  if (password !== confirm_password) {
+    return res.status(400).json({ message: 'Passwords do not match.' });
+  }
+
+  if (password.length < 6) {
+    return res.status(400).json({ message: 'Password must be at least 6 characters long.' });
+  }
+
+  const safeEmail = String(email).trim().toLowerCase();
+  const safeFullName = String(full_name).trim();
+  const safePhone = String(phone).trim();
+  const safeRoll = String(roll_no).trim();
+  const safeSection = String(section).trim();
+  const safeCourse = String(course).trim();
+  const safeSemester = String(semester).trim();
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(safeEmail)) {
+    return res.status(400).json({ message: 'Please enter a valid email address.' });
+  }
+
+  try {
+    const [emailRows] = await pool.query('SELECT id FROM students WHERE email = ? LIMIT 1', [safeEmail]);
+    if (emailRows.length > 0) {
+      return res.status(409).json({ message: 'A student account with this email already exists.' });
+    }
+
+    const [rollRows] = await pool.query('SELECT id FROM students WHERE roll_no = ? LIMIT 1', [safeRoll]);
+    if (rollRows.length > 0) {
+      return res.status(409).json({ message: 'A student with this roll number already exists.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const [result] = await pool.query(
+      `INSERT INTO students (roll_no, name, email, password_hash, phone, section, course, semester, role)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'STUDENT')`,
+      [safeRoll, safeFullName, safeEmail, passwordHash, safePhone, safeSection, safeCourse, safeSemester]
+    );
+
+    return res.status(201).json({
+      message: 'Student signup successful.',
+      student: {
+        id: result.insertId,
+        name: safeFullName,
+        email: safeEmail,
+        roll_no: safeRoll,
+        role: 'STUDENT',
+      },
+    });
+  } catch (error) {
+    console.error('Student signup error:', error);
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: 'Duplicate email or roll number detected.' });
+    }
+    return res.status(500).json({ message: 'Could not create student account.' });
+  }
+});
+
+app.post('/api/auth/student/login', async (req, res) => {
+  const pool = getPool();
+  if (!pool) return sendDatabaseUnavailable(res);
+
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ message: 'Email and password are required.' });
+  }
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT * FROM students WHERE email = ? LIMIT 1`,
+      [String(email).trim().toLowerCase()]
+    );
+
+    if (!rows.length) {
+      return res.status(401).json({ message: 'Invalid email or password.' });
+    }
+
+    const student = rows[0];
+    const isValidPassword = await bcrypt.compare(password, student.password_hash || '');
+    if (!isValidPassword) {
+      return res.status(401).json({ message: 'Invalid email or password.' });
+    }
+
+    const token = jwt.sign(
+      { id: student.id, email: student.email, name: student.name, role: 'STUDENT' },
+      JWT_SECRET,
+      { expiresIn: '8h' }
+    );
+
+    return res.json({
+      message: 'Student login successful',
+      token,
+      student: {
+        id: student.id,
+        email: student.email,
+        name: student.name,
+        role: 'STUDENT',
+      },
+    });
+  } catch (error) {
+    console.error('Student login error:', error);
+    return res.status(500).json({ message: 'Something went wrong while logging in.' });
+  }
+});
+
+app.get('/api/auth/student/me', authenticateToken, requireRole('STUDENT'), async (req, res) => {
+  const pool = getPool();
+  if (!pool) return sendDatabaseUnavailable(res);
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, roll_no, name, email, phone, section, course, semester, role
+       FROM students
+       WHERE id = ? LIMIT 1`,
+      [req.user.id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ message: 'Student not found.' });
+    }
+
+    return res.json({ student: rows[0] });
+  } catch (error) {
+    console.error('Fetch student profile error:', error);
+    return res.status(500).json({ message: 'Could not fetch student profile.' });
+  }
+});
+
+app.get('/api/dashboard/stats', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const pool = getPool();
   if (!pool) return sendDatabaseUnavailable(res);
 
@@ -144,7 +311,7 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/students', authenticateToken, async (req, res) => {
+app.get('/api/students', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const pool = getPool();
   if (!pool) return sendDatabaseUnavailable(res);
 
@@ -187,7 +354,7 @@ app.get('/api/students', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/students', authenticateToken, async (req, res) => {
+app.post('/api/students', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const pool = getPool();
   if (!pool) return sendDatabaseUnavailable(res);
 
@@ -212,7 +379,7 @@ app.post('/api/students', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/students/:id', authenticateToken, async (req, res) => {
+app.put('/api/students/:id', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const pool = getPool();
   if (!pool) return sendDatabaseUnavailable(res);
 
@@ -237,7 +404,7 @@ app.put('/api/students/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/students/:id', authenticateToken, async (req, res) => {
+app.delete('/api/students/:id', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const pool = getPool();
   if (!pool) return sendDatabaseUnavailable(res);
 
@@ -252,7 +419,7 @@ app.delete('/api/students/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/subjects', authenticateToken, async (req, res) => {
+app.get('/api/subjects', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const pool = getPool();
   if (!pool) return sendDatabaseUnavailable(res);
 
@@ -265,7 +432,7 @@ app.get('/api/subjects', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/subjects', authenticateToken, async (req, res) => {
+app.post('/api/subjects', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const pool = getPool();
   if (!pool) return sendDatabaseUnavailable(res);
 
@@ -288,7 +455,7 @@ app.post('/api/subjects', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/subjects/:id', authenticateToken, async (req, res) => {
+app.put('/api/subjects/:id', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const pool = getPool();
   if (!pool) return sendDatabaseUnavailable(res);
 
@@ -317,7 +484,7 @@ app.put('/api/subjects/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/subjects/:id', authenticateToken, async (req, res) => {
+app.delete('/api/subjects/:id', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const pool = getPool();
   if (!pool) return sendDatabaseUnavailable(res);
 
@@ -336,7 +503,7 @@ app.delete('/api/subjects/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/marks', authenticateToken, async (req, res) => {
+app.get('/api/marks', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const pool = getPool();
   if (!pool) return sendDatabaseUnavailable(res);
 
@@ -358,7 +525,7 @@ app.get('/api/marks', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/marks', authenticateToken, async (req, res) => {
+app.post('/api/marks', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const pool = getPool();
   if (!pool) return sendDatabaseUnavailable(res);
 
@@ -407,7 +574,7 @@ app.post('/api/marks', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/marks/:id', authenticateToken, async (req, res) => {
+app.put('/api/marks/:id', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const pool = getPool();
   if (!pool) return sendDatabaseUnavailable(res);
 
@@ -440,7 +607,7 @@ app.put('/api/marks/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/marks/:id', authenticateToken, async (req, res) => {
+app.delete('/api/marks/:id', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const pool = getPool();
   if (!pool) return sendDatabaseUnavailable(res);
 
@@ -459,7 +626,7 @@ app.delete('/api/marks/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/results', authenticateToken, async (req, res) => {
+app.get('/api/results', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const pool = getPool();
   if (!pool) return sendDatabaseUnavailable(res);
 
@@ -497,6 +664,214 @@ app.get('/api/results', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Result search error:', error);
     return res.status(500).json({ message: 'Could not load results.' });
+  }
+});
+
+app.get('/api/student/dashboard', authenticateToken, requireRole('STUDENT'), async (req, res) => {
+  const pool = getPool();
+  if (!pool) return sendDatabaseUnavailable(res);
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT s.id, s.name, s.roll_no, s.email, s.phone, s.section, s.course, s.semester,
+              COUNT(m.id) AS total_subjects,
+              COALESCE(SUM(m.marks_obtained), 0) AS total_marks,
+              COALESCE(SUM(m.max_marks), 0) AS maximum_marks,
+              COALESCE(r.percentage, 0) AS percentage,
+              COALESCE(r.grade, 'F') AS grade,
+              COALESCE(r.result_status, 'FAIL') AS result_status
+       FROM students s
+       LEFT JOIN marks m ON m.student_id = s.id
+       LEFT JOIN results r ON r.student_id = s.id
+       WHERE s.id = ?
+       GROUP BY s.id, r.percentage, r.grade, r.result_status
+       LIMIT 1`,
+      [req.user.id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ message: 'Student profile not found.' });
+    }
+
+    const student = rows[0];
+    return res.json({
+      id: student.id,
+      name: student.name,
+      roll_no: student.roll_no,
+      email: student.email,
+      phone: student.phone,
+      course: student.course,
+      section: student.section,
+      semester: student.semester,
+      total_subjects: Number(student.total_subjects || 0),
+      total_marks: Number(student.total_marks || 0),
+      maximum_marks: Number(student.maximum_marks || 0),
+      percentage: Number(student.percentage || 0),
+      grade: student.grade || 'F',
+      result_status: student.result_status || 'FAIL',
+    });
+  } catch (error) {
+    console.error('Student dashboard error:', error);
+    return res.status(500).json({ message: 'Could not fetch student dashboard data.' });
+  }
+});
+
+app.get('/api/student/profile', authenticateToken, requireRole('STUDENT'), async (req, res) => {
+  const pool = getPool();
+  if (!pool) return sendDatabaseUnavailable(res);
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, roll_no, name, email, phone, section, course, semester, role
+       FROM students
+       WHERE id = ? LIMIT 1`,
+      [req.user.id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ message: 'Student not found.' });
+    }
+
+    return res.json(rows[0]);
+  } catch (error) {
+    console.error('Student profile fetch error:', error);
+    return res.status(500).json({ message: 'Could not fetch profile.' });
+  }
+});
+
+app.put('/api/student/profile', authenticateToken, requireRole('STUDENT'), async (req, res) => {
+  const pool = getPool();
+  if (!pool) return sendDatabaseUnavailable(res);
+
+  const allowedFields = ['name', 'email', 'phone', 'section', 'course', 'semester'];
+  const updates = {};
+
+  for (const field of allowedFields) {
+    if (req.body[field] !== undefined && req.body[field] !== null && String(req.body[field]).trim() !== '') {
+      updates[field] = String(req.body[field]).trim();
+    }
+  }
+
+  if (!Object.keys(updates).length) {
+    return res.status(400).json({ message: 'Please provide at least one editable profile field.' });
+  }
+
+  if (updates.email) {
+    const normalizedEmail = updates.email.toLowerCase();
+    const [duplicateEmail] = await pool.query('SELECT id FROM students WHERE email = ? AND id != ? LIMIT 1', [normalizedEmail, req.user.id]);
+    if (duplicateEmail.length) {
+      return res.status(409).json({ message: 'Another student already uses this email address.' });
+    }
+    updates.email = normalizedEmail;
+  }
+
+  try {
+    const fields = Object.keys(updates);
+    const values = fields.map((key) => updates[key]);
+    const assignments = fields.map((key) => `${key} = ?`).join(', ');
+
+    await pool.query(
+      `UPDATE students SET ${assignments} WHERE id = ?`,
+      [...values, req.user.id]
+    );
+
+    return res.json({ message: 'Profile updated successfully.' });
+  } catch (error) {
+    console.error('Update student profile error:', error);
+    return res.status(500).json({ message: 'Could not update profile.' });
+  }
+});
+
+app.get('/api/student/subjects', authenticateToken, requireRole('STUDENT'), async (req, res) => {
+  const pool = getPool();
+  if (!pool) return sendDatabaseUnavailable(res);
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT DISTINCT sb.id, sb.subject_code, sb.subject_name, sb.max_marks
+       FROM marks m
+       JOIN subjects sb ON sb.id = m.subject_id
+       WHERE m.student_id = ?
+       ORDER BY sb.subject_name ASC`,
+      [req.user.id]
+    );
+
+    return res.json(rows);
+  } catch (error) {
+    console.error('Student subjects error:', error);
+    return res.status(500).json({ message: 'Could not fetch subject list.' });
+  }
+});
+
+app.get('/api/student/marks', authenticateToken, requireRole('STUDENT'), async (req, res) => {
+  const pool = getPool();
+  if (!pool) return sendDatabaseUnavailable(res);
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT m.id, sb.subject_code, sb.subject_name, sb.max_marks, m.marks_obtained,
+              ROUND((m.marks_obtained / m.max_marks) * 100, 2) AS percentage
+       FROM marks m
+       JOIN subjects sb ON sb.id = m.subject_id
+       WHERE m.student_id = ?
+       ORDER BY sb.subject_name ASC`,
+      [req.user.id]
+    );
+
+    return res.json(rows);
+  } catch (error) {
+    console.error('Student marks error:', error);
+    return res.status(500).json({ message: 'Could not fetch marks.' });
+  }
+});
+
+app.get('/api/student/result', authenticateToken, requireRole('STUDENT'), async (req, res) => {
+  const pool = getPool();
+  if (!pool) return sendDatabaseUnavailable(res);
+
+  try {
+    const [studentRows] = await pool.query(
+      `SELECT s.name, s.roll_no, s.course, s.semester
+       FROM students s
+       WHERE s.id = ? LIMIT 1`,
+      [req.user.id]
+    );
+
+    if (!studentRows.length) {
+      return res.status(404).json({ message: 'Student not found.' });
+    }
+
+    const [resultRows] = await pool.query(
+      `SELECT total_marks, max_marks, percentage, grade, result_status
+       FROM results
+       WHERE student_id = ? LIMIT 1`,
+      [req.user.id]
+    );
+
+    const [markRows] = await pool.query(
+      `SELECT sb.subject_name, sb.max_marks, m.marks_obtained,
+              ROUND((m.marks_obtained / m.max_marks) * 100, 2) AS percentage
+       FROM marks m
+       JOIN subjects sb ON sb.id = m.subject_id
+       WHERE m.student_id = ?
+       ORDER BY sb.subject_name ASC`,
+      [req.user.id]
+    );
+
+    return res.json({
+      student: studentRows[0],
+      result: resultRows[0] || {
+        total_marks: 0,
+        max_marks: 0,
+        percentage: 0,
+        grade: 'F',
+        result_status: 'FAIL',
+      },
+      marks: markRows,
+    });
+  } catch (error) {
+    console.error('Student result error:', error);
+    return res.status(500).json({ message: 'Could not fetch result.' });
   }
 });
 

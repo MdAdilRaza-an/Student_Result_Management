@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Subjects</title>
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body>
+    <div class="student-shell">
+      <header class="student-topbar">
+        <div><strong>Student Portal</strong></div>
+        <nav class="student-nav">
+          <a href="student-dashboard.html">Dashboard</a>
+          <a href="student-profile.html">My Profile</a>
+          <a class="active" href="student-subjects.html">My Subjects</a>
+          <a href="student-marks.html">My Marks</a>
+          <a href="student-result.html">My Result</a>
+        </nav>
+        <button id="logoutBtn" class="secondary-btn" style="width:auto; padding:8px 12px;">Logout</button>
+      </header>
+
+      <main class="student-content">
+        <div class="student-page-card">
+          <h1>My Subjects</h1>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Subject Code</th>
+                  <th>Subject Name</th>
+                  <th>Maximum Marks</th>
+                </tr>
+              </thead>
+              <tbody id="subjectsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script src="./config.js"></script>
+    <script src="./js/auth.js"></script>
+    <script>
+      redirectIfNotAuthenticated({ role: 'STUDENT', loginPage: 'student-login.html' });
+
+      document.getElementById('logoutBtn').addEventListener('click', () => {
+        clearAuthToken();
+        window.location.href = 'student-login.html';
+      });
+
+      async function loadSubjects() {
+        try {
+          const data = await fetchJson('/api/student/subjects');
+          const body = document.getElementById('subjectsTableBody');
+          if (!data.length) {
+            body.innerHTML = '<tr><td colspan="3" class="empty-state">No subjects available yet.</td></tr>';
+            return;
+          }
+
+          body.innerHTML = data.map((subject) => `
+            <tr>
+              <td>${subject.subject_code}</td>
+              <td>${subject.subject_name}</td>
+              <td>${subject.max_marks}</td>
+            </tr>
+          `).join('');
+        } catch (error) {
+          console.error(error);
+        }
+      }
+
+      loadSubjects();
+    </script>
+  </body>
+</html>

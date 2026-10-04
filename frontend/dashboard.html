@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -7,8 +7,11 @@
     <link rel="stylesheet" href="./css/style.css" />
   </head>
   <body>
+    <button class="sidebar-toggle" id="sidebarToggle" aria-label="Open navigation">☰</button>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
     <div class="app-shell">
-      <aside class="sidebar">
+      <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
           <h2>SRMS</h2>
         </div>
@@ -59,14 +62,30 @@
     <script src="./config.js"></script>
     <script src="./js/auth.js"></script>
     <script>
-      redirectIfNotAuthenticated();
+      redirectIfNotAuthenticated({ role: 'ADMIN', loginPage: 'index.html' });
+
+      const sidebar = document.getElementById('sidebar');
+      const sidebarToggle = document.getElementById('sidebarToggle');
+      const sidebarOverlay = document.getElementById('sidebarOverlay');
+
+      function toggleSidebar(forceState) {
+        if (!sidebar) return;
+        const shouldOpen = typeof forceState === 'boolean' ? forceState : !sidebar.classList.contains('is-open');
+        sidebar.classList.toggle('is-open', shouldOpen);
+        if (sidebarOverlay) {
+          sidebarOverlay.classList.toggle('is-visible', shouldOpen);
+        }
+      }
+
+      sidebarToggle && sidebarToggle.addEventListener('click', () => toggleSidebar());
+      sidebarOverlay && sidebarOverlay.addEventListener('click', () => toggleSidebar(false));
+
       const adminNameEl = document.getElementById('adminName');
-      const admin = JSON.parse(localStorage.getItem('student_result_admin') || '{}');
+      const admin = getAuthUser();
       if (admin.name) adminNameEl.textContent = admin.name;
 
       document.getElementById('logoutBtn').addEventListener('click', () => {
         clearAuthToken();
-        localStorage.removeItem('student_result_admin');
         window.location.href = 'index.html';
       });
 
@@ -95,7 +114,7 @@
       async function loadAdminProfile() {
         try {
           const response = await fetchJson('/api/auth/me');
-          localStorage.setItem('student_result_admin', JSON.stringify(response.admin));
+          setAuthUser(response.admin);
           adminNameEl.textContent = response.admin.name;
         } catch (error) {
           console.error(error);

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Student Signup</title>
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body class="auth-body student-auth-body">
+    <div class="auth-container">
+      <div class="auth-header">
+        <span class="eyebrow">Student Signup</span>
+        <h1>Create your account</h1>
+        <p>Register to access your academic profile</p>
+      </div>
+
+      <form id="signupForm">
+        <div class="form-group">
+          <label for="fullName">Full Name</label>
+          <input id="fullName" name="full_name" type="text" required />
+        </div>
+
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" required />
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" required />
+        </div>
+
+        <div class="form-group">
+          <label for="confirmPassword">Confirm Password</label>
+          <input id="confirmPassword" name="confirm_password" type="password" required />
+        </div>
+
+        <div class="form-group">
+          <label for="phone">Phone</label>
+          <input id="phone" name="phone" type="tel" required />
+        </div>
+
+        <div class="form-group">
+          <label for="rollNo">Roll Number</label>
+          <input id="rollNo" name="roll_no" type="text" required />
+        </div>
+
+        <div class="form-group">
+          <label for="section">Section</label>
+          <input id="section" name="section" type="text" required />
+        </div>
+
+        <div class="form-group">
+          <label for="course">Course</label>
+          <input id="course" name="course" type="text" required />
+        </div>
+
+        <div class="form-group">
+          <label for="semester">Semester</label>
+          <input id="semester" name="semester" type="text" required />
+        </div>
+
+        <button type="submit" class="primary-btn">Create Account</button>
+      </form>
+
+      <div class="auth-links">
+        <a href="student-login.html">Already have an account? Login</a>
+        <a href="index.html">Admin Portal</a>
+      </div>
+
+      <div id="signupMessage" class="message"></div>
+    </div>
+
+    <script src="./config.js"></script>
+    <script src="./js/auth.js"></script>
+    <script>
+      const user = getAuthUser();
+      if (getAuthToken() && user.role === 'STUDENT') {
+        window.location.href = 'student-dashboard.html';
+      }
+
+      document.getElementById('signupForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const payload = {
+          full_name: document.getElementById('fullName').value.trim(),
+          email: document.getElementById('email').value.trim(),
+          password: document.getElementById('password').value,
+          confirm_password: document.getElementById('confirmPassword').value,
+          phone: document.getElementById('phone').value.trim(),
+          roll_no: document.getElementById('rollNo').value.trim(),
+          section: document.getElementById('section').value.trim(),
+          course: document.getElementById('course').value.trim(),
+          semester: document.getElementById('semester').value.trim(),
+        };
+
+        const messageBox = document.getElementById('signupMessage');
+
+        try {
+          setMessage(messageBox, 'Creating your student account...', 'success');
+          const data = await fetchJson('/api/auth/student/signup', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+
+          setMessage(messageBox, data.message, 'success');
+          setTimeout(() => {
+            window.location.href = 'student-login.html';
+          }, 700);
+        } catch (error) {
+          setMessage(messageBox, error.message, 'error');
+        }
+      });
+    </script>
+  </body>
+</html>

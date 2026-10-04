@@ -10,7 +10,6 @@ const dbConfig = {
   password: process.env.DB_PASSWORD || '',
   database: dbName,
 
-  // TiDB Cloud Public Endpoint requires TLS
   ...(process.env.DB_SSL === 'true'
     ? {
         ssl: {
@@ -36,18 +35,65 @@ function getPool() {
   return pool;
 }
 
+async function ensureStudentAuthColumns(connection) {
+  const [columns] = await connection.query(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'students'`,
+    [dbConfig.database]
+  );
+
+  const columnNames = new Set(columns.map((column) => column.COLUMN_NAME));
+
+  if (!columnNames.has('password_hash')) {
+    await connection.execute(
+      'ALTER TABLE students ADD COLUMN password_hash VARCHAR(255) NULL AFTER email'
+    );
+  }
+
+  if (!columnNames.has('role')) {
+    await connection.execute(
+      'ALTER TABLE students ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT "STUDENT" AFTER password_hash'
+    );
+  }
+
+  await connection.execute(
+    `UPDATE students SET role = 'STUDENT' WHERE role IS NULL OR role = ''`
+  );
+
+  const [emailDuplicates] = await connection.query(
+    `SELECT email
+     FROM students
+     WHERE email IS NOT NULL
+     GROUP BY email
+     HAVING COUNT(*) > 1`
+  );
+
+  if (!emailDuplicates.length) {
+    const [uniqueIndexes] = await connection.query(
+      `SELECT INDEX_NAME
+       FROM INFORMATION_SCHEMA.STATISTICS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'students' AND INDEX_NAME = 'unique_student_email'`,
+      [dbConfig.database]
+    );
+
+    if (!uniqueIndexes.length) {
+      await connection.execute(
+        'ALTER TABLE students ADD UNIQUE INDEX unique_student_email (email)'
+      );
+    }
+  }
+}
+
 async function initializeDatabase() {
   dbReady = false;
 
   try {
-    // Initial connection for creating the database
     const initConnection = await mysql.createConnection({
       host: dbConfig.host,
       port: dbConfig.port,
       user: dbConfig.user,
       password: dbConfig.password,
-
-      // TiDB Cloud TLS support
       ...(process.env.DB_SSL === 'true'
         ? {
             ssl: {
@@ -56,7 +102,6 @@ async function initializeDatabase() {
             },
           }
         : {}),
-
       multipleStatements: true,
     });
 
@@ -66,7 +111,6 @@ async function initializeDatabase() {
 
     await initConnection.end();
 
-    // Connection using selected database
     const connection = await mysql.createConnection(dbConfig);
 
     await connection.execute(`
@@ -92,6 +136,8 @@ async function initializeDatabase() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    await ensureStudentAuthColumns(connection);
 
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS subjects (
@@ -131,7 +177,6 @@ async function initializeDatabase() {
       )
     `);
 
-    // Default subjects
     const defaultSubjects = [
       ['JAVA101', 'Java', 100],
       ['HTML101', 'HTML', 100],
@@ -150,19 +195,10 @@ async function initializeDatabase() {
       );
     }
 
-    // Default admin
-    const adminEmail =
-      process.env.ADMIN_EMAIL || 'admin@studentresult.com';
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@studentresult.com';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+    const passwordHash = require('bcryptjs').hashSync(adminPassword, 10);
 
-    const adminPassword =
-      process.env.ADMIN_PASSWORD || 'admin123';
-
-    const passwordHash = require('bcryptjs').hashSync(
-      adminPassword,
-      10
-    );
-
-    // Create or update default admin
     await connection.execute(
       `INSERT INTO admins
         (email, password_hash, full_name)
@@ -170,16 +206,9 @@ async function initializeDatabase() {
        ON DUPLICATE KEY UPDATE
          password_hash = ?,
          full_name = ?`,
-      [
-        adminEmail,
-        passwordHash,
-        'System Admin',
-        passwordHash,
-        'System Admin'
-      ]
+      [adminEmail, passwordHash, 'System Admin', passwordHash, 'System Admin']
     );
 
-    // Create connection pool
     pool = mysql.createPool(dbConfig);
     dbReady = true;
 
@@ -190,11 +219,7 @@ async function initializeDatabase() {
     pool = null;
     dbReady = false;
 
-    console.error(
-      'Database initialization failed:',
-      error.message
-    );
-
+    console.error('Database initialization failed:', error.message);
     return false;
   }
 }

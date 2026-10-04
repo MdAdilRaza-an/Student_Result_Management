@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Result</title>
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body>
+    <div class="student-shell">
+      <header class="student-topbar">
+        <div><strong>Student Portal</strong></div>
+        <nav class="student-nav">
+          <a href="student-dashboard.html">Dashboard</a>
+          <a href="student-profile.html">My Profile</a>
+          <a href="student-subjects.html">My Subjects</a>
+          <a href="student-marks.html">My Marks</a>
+          <a class="active" href="student-result.html">My Result</a>
+        </nav>
+        <button id="logoutBtn" class="secondary-btn" style="width:auto; padding:8px 12px;">Logout</button>
+      </header>
+
+      <main class="student-content">
+        <div class="student-page-card">
+          <h1>Academic Result</h1>
+          <div id="resultSummary" style="margin-bottom: 18px;"></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Subject Name</th>
+                  <th>Maximum Marks</th>
+                  <th>Obtained Marks</th>
+                  <th>Percentage</th>
+                </tr>
+              </thead>
+              <tbody id="resultTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script src="./config.js"></script>
+    <script src="./js/auth.js"></script>
+    <script>
+      redirectIfNotAuthenticated({ role: 'STUDENT', loginPage: 'student-login.html' });
+
+      document.getElementById('logoutBtn').addEventListener('click', () => {
+        clearAuthToken();
+        window.location.href = 'student-login.html';
+      });
+
+      async function loadResult() {
+        try {
+          const data = await fetchJson('/api/student/result');
+          const summary = data.result || {};
+          document.getElementById('resultSummary').innerHTML = `
+            <p><strong>Student Name:</strong> ${data.student.name}</p>
+            <p><strong>Roll Number:</strong> ${data.student.roll_no}</p>
+            <p><strong>Course:</strong> ${data.student.course}</p>
+            <p><strong>Semester:</strong> ${data.student.semester}</p>
+            <p><strong>Total Marks:</strong> ${summary.total_marks || 0}</p>
+            <p><strong>Maximum Marks:</strong> ${summary.max_marks || 0}</p>
+            <p><strong>Percentage:</strong> ${summary.percentage || 0}%</p>
+            <p><strong>Grade:</strong> ${summary.grade || 'F'}</p>
+            <p><strong>Result Status:</strong> ${summary.result_status || 'FAIL'}</p>
+          `;
+
+          const rows = data.marks || [];
+          const tableBody = document.getElementById('resultTableBody');
+          if (!rows.length) {
+            tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">No result details are available yet.</td></tr>';
+            return;
+          }
+
+          tableBody.innerHTML = rows.map((row) => `
+            <tr>
+              <td>${row.subject_name}</td>
+              <td>${row.max_marks}</td>
+              <td>${row.marks_obtained}</td>
+              <td>${row.percentage}%</td>
+            </tr>
+          `).join('');
+        } catch (error) {
+          console.error(error);
+        }
+      }
+
+      loadResult();
+    </script>
+  </body>
+</html>
